@@ -59,6 +59,7 @@ static mempool_t uc_pool;
 
 static int ppp_chan_read(struct triton_md_handler_t*);
 static int ppp_unit_read(struct triton_md_handler_t*);
+static int ppp_chan_and_unit_read(struct triton_md_handler_t*);
 static void init_layers(struct ppp_t *);
 static void _free_layers(struct ppp_t *);
 static void start_first_layer(struct ppp_t *);
@@ -73,6 +74,7 @@ void __export ppp_init(struct ppp_t *ppp)
 	ppp->fd = -1;
 	ppp->chan_fd = -1;
 	ppp->unit_fd = -1;
+	ppp->unit_read = -1;
 
 	ap_session_init(&ppp->ses);
 }
@@ -82,26 +84,31 @@ int __export establish_ppp(struct ppp_t *ppp)
 	if (ap_shutdown)
 		return -1;
 
-	/* Open an instance of /dev/ppp and connect the channel to it */
-	if (net->ppp_ioctl(ppp->fd, PPPIOCGCHAN, &ppp->chan_idx) == -1) {
-		log_ppp_error("ioctl(PPPIOCGCHAN): %s\n", strerror(errno));
-		return -1;
-	}
+	// /* Open an instance of /dev/ppp and connect the channel to it */
+	// if (net->ppp_ioctl(ppp->fd, PPPIOCGCHAN, &ppp->chan_idx) == -1) {
+	// 	log_ppp_error("ioctl(PPPIOCGCHAN): %s\n", strerror(errno));
+	// 	return -1;
+	// }
 
-	ppp->chan_fd = net->ppp_open();
-	if (ppp->chan_fd < 0) {
-		log_ppp_error("open(chan) /dev/ppp: %s\n", strerror(errno));
-		return -1;
-	}
+	// ppp->chan_fd = net->ppp_open();
+	// if (ppp->chan_fd < 0) {
+	// 	log_ppp_error("open(chan) /dev/ppp: %s\n", strerror(errno));
+	// 	return -1;
+	// }
 
-	fcntl(ppp->chan_fd, F_SETFD, fcntl(ppp->chan_fd, F_GETFD) | FD_CLOEXEC);
+	// fcntl(ppp->chan_fd, F_SETFD, fcntl(ppp->chan_fd, F_GETFD) | FD_CLOEXEC);
 
-	net->set_nonblocking(ppp->chan_fd, 1);
+	// net->set_nonblocking(ppp->chan_fd, 1);
 
-	if (net->ppp_ioctl(ppp->chan_fd, PPPIOCATTCHAN, &ppp->chan_idx) < 0) {
-		log_ppp_error("ioctl(PPPIOCATTCHAN): %s\n", strerror(errno));
-		goto exit_close_chan;
-	}
+	// if (net->ppp_ioctl(ppp->chan_fd, PPPIOCATTCHAN, &ppp->chan_idx) < 0) {
+	// 	log_ppp_error("ioctl(PPPIOCATTCHAN): %s\n", strerror(errno));
+	// 	goto exit_close_chan;
+	// }
+
+	net->set_nonblocking(ppp->fd, 1);
+	ppp->chan_fd = ppp->fd;
+	// ppp->ses.ctrl->dont_ifcfg = 1;
+
 
 	init_layers(ppp);
 	if (list_empty(&ppp->layers)) {
@@ -110,7 +117,9 @@ int __export establish_ppp(struct ppp_t *ppp)
 	}
 
 	ppp->chan_hnd.fd = ppp->chan_fd;
-	ppp->chan_hnd.read = ppp_chan_read;
+	// ppp->chan_hnd.fd = ppp->fd;
+	// ppp->chan_hnd.read = ppp_chan_read;
+	ppp->chan_hnd.read = ppp_chan_and_unit_read;
 
 	if (conf_unit_preallocate) {
 		if (connect_ppp_channel(ppp))
@@ -129,7 +138,7 @@ int __export establish_ppp(struct ppp_t *ppp)
 	return 0;
 
 exit_close_chan:
-	close(ppp->chan_fd);
+	// close(ppp->chan_fd);
 
 	return -1;
 }
@@ -145,46 +154,50 @@ int __export connect_ppp_channel(struct ppp_t *ppp)
 		return 0;
 	}
 
-	if (uc_size) {
-		pthread_mutex_lock(&uc_lock);
-		if (!list_empty(&uc_list)) {
-			uc = list_entry(uc_list.next, typeof(*uc), entry);
-			list_del(&uc->entry);
-			--uc_size;
-		}
-		pthread_mutex_unlock(&uc_lock);
-	}
+	// if (uc_size) {
+	// 	pthread_mutex_lock(&uc_lock);
+	// 	if (!list_empty(&uc_list)) {
+	// 		uc = list_entry(uc_list.next, typeof(*uc), entry);
+	// 		list_del(&uc->entry);
+	// 		--uc_size;
+	// 	}
+	// 	pthread_mutex_unlock(&uc_lock);
+	// }
 
-	if (uc) {
-		ppp->unit_fd = uc->fd;
-		ppp->ses.unit_idx = uc->unit_idx;
-		mempool_free(uc);
-	} else {
-		ppp->unit_fd = net->ppp_open();
-		if (ppp->unit_fd < 0) {
-			log_ppp_error("open(unit) /dev/ppp: %s\n", strerror(errno));
-			goto exit;
-		}
+	// if (uc) {
+	// 	ppp->unit_fd = uc->fd;
+	// 	ppp->ses.unit_idx = uc->unit_idx;
+	// 	mempool_free(uc);
+	// } else {
+	// 	ppp->unit_fd = net->ppp_open();
+	// 	if (ppp->unit_fd < 0) {
+	// 		log_ppp_error("open(unit) /dev/ppp: %s\n", strerror(errno));
+	// 		goto exit;
+	// 	}
 
-		fcntl(ppp->unit_fd, F_SETFD, fcntl(ppp->unit_fd, F_GETFD) | FD_CLOEXEC);
+	// 	fcntl(ppp->unit_fd, F_SETFD, fcntl(ppp->unit_fd, F_GETFD) | FD_CLOEXEC);
 
-		if (net->ppp_ioctl(ppp->unit_fd, PPPIOCNEWUNIT, &ppp->ses.unit_idx) < 0) {
-			log_ppp_error("ioctl(PPPIOCNEWUNIT): %s\n", strerror(errno));
-			goto exit_close_unit;
-		}
+	// 	if (net->ppp_ioctl(ppp->unit_fd, PPPIOCNEWUNIT, &ppp->ses.unit_idx) < 0) {
+	// 		log_ppp_error("ioctl(PPPIOCNEWUNIT): %s\n", strerror(errno));
+	// 		goto exit_close_unit;
+	// 	}
 
-		if (fcntl(ppp->unit_fd, F_SETFL, O_NONBLOCK)) {
-			log_ppp_error("ppp: cannot set nonblocking mode: %s\n", strerror(errno));
-			goto exit_close_unit;
-		}
-	}
+	// 	if (fcntl(ppp->unit_fd, F_SETFL, O_NONBLOCK)) {
+	// 		log_ppp_error("ppp: cannot set nonblocking mode: %s\n", strerror(errno));
+	// 		goto exit_close_unit;
+	// 	}
+	// }
 
-	if (net->ppp_ioctl(ppp->chan_fd, PPPIOCCONNECT, &ppp->ses.unit_idx) < 0) {
-		log_ppp_error("ioctl(PPPIOCCONNECT): %s\n", strerror(errno));
-		goto exit_close_unit;
-	}
+	// if (net->ppp_ioctl(ppp->chan_fd, PPPIOCCONNECT, &ppp->ses.unit_idx) < 0) {
+	// 	log_ppp_error("ioctl(PPPIOCCONNECT): %s\n", strerror(errno));
+	// 	goto exit_close_unit;
+	// }
 
-	sprintf(ppp->ses.ifname, "ppp%i", ppp->ses.unit_idx);
+	ppp->unit_fd = ppp->fd;
+	ppp->ses.unit_idx = ppp->fd;
+
+	// sprintf(ppp->ses.ifname, "ppp%i", ppp->ses.unit_idx);
+	sprintf(ppp->ses.ifname, "vpptap0");
 
 	log_ppp_info1("connect: %s <--> %s(%s)\n", ppp->ses.ifname, ppp->ses.ctrl->name, ppp->ses.chan_name);
 
@@ -194,24 +207,28 @@ int __export connect_ppp_channel(struct ppp_t *ppp)
 		log_ppp_error("ioctl(SIOCGIFINDEX): %s\n", strerror(errno));
 		goto exit_close_unit;
 	}
-	ppp->ses.ifindex = ifr.ifr_ifindex;
+	ppp->ses.ifindex = -1;
 
 	setup_ppp_mru(ppp);
 
 	ap_session_set_ifindex(&ppp->ses);
 
 	ppp->unit_hnd.fd = ppp->unit_fd;
-	ppp->unit_hnd.read = ppp_unit_read;
+	ppp->unit_hnd.read = ppp_chan_and_unit_read;
 
 	log_ppp_debug("ppp connected\n");
+	ppp->unit_read = 1;
 
-	triton_md_register_handler(ppp->ses.ctrl->ctx, &ppp->unit_hnd);
-	triton_md_enable_handler(&ppp->unit_hnd, MD_MODE_READ);
+	// triton_md_disable_handler(&ppp->chan_hnd, MD_MODE_READ);
+	// triton_md_unregister_handler(&ppp->chan_hnd, 0);
+
+	// triton_md_register_handler(ppp->ses.ctrl->ctx, &ppp->unit_hnd);
+	// triton_md_enable_handler(&ppp->unit_hnd, MD_MODE_READ);
 
 	return 0;
 
 exit_close_unit:
-	close(ppp->unit_fd);
+	// close(ppp->unit_fd);
 	ppp->unit_fd = -1;
 exit:
 	return -1;
@@ -232,29 +249,29 @@ static void destroy_ppp_channel(struct ppp_t *ppp)
 
 static int setup_ppp_mru(struct ppp_t *ppp)
 {
-	struct ifreq ifr;
+	// struct ifreq ifr;
 
-	if (ppp->mtu) {
-		memset(&ifr, 0, sizeof(ifr));
-		strcpy(ifr.ifr_name, ppp->ses.ifname);
-		ifr.ifr_mtu = ppp->mtu;
-		if (net->sock_ioctl(SIOCSIFMTU, &ifr)) {
-			log_ppp_error("failed to set MTU: %s\n", strerror(errno));
-			return -1;
-		}
-	}
+	// if (ppp->mtu) {
+	// 	memset(&ifr, 0, sizeof(ifr));
+	// 	strcpy(ifr.ifr_name, ppp->ses.ifname);
+	// 	ifr.ifr_mtu = ppp->mtu;
+	// 	if (net->sock_ioctl(SIOCSIFMTU, &ifr)) {
+	// 		log_ppp_error("failed to set MTU: %s\n", strerror(errno));
+	// 		return -1;
+	// 	}
+	// }
 
-	if (ppp->mru) {
-		if (net->ppp_ioctl(ppp->unit_fd, PPPIOCSMRU, &ppp->mru)) {
-			log_ppp_error("failed to set unit MRU: %s\n", strerror(errno));
-			return -1;
-		}
-		if (net->ppp_ioctl(ppp->chan_fd, PPPIOCSMRU, &ppp->mru) &&
-		    errno != EIO && errno != ENOTTY) {
-			log_ppp_error("lcp:mru: failed to set channel MRU: %s\n", strerror(errno));
-			return -1;
-		}
-	}
+	// if (ppp->mru) {
+	// 	if (net->ppp_ioctl(ppp->unit_fd, PPPIOCSMRU, &ppp->mru)) {
+	// 		log_ppp_error("failed to set unit MRU: %s\n", strerror(errno));
+	// 		return -1;
+	// 	}
+	// 	if (net->ppp_ioctl(ppp->chan_fd, PPPIOCSMRU, &ppp->mru) &&
+	// 	    errno != EIO && errno != ENOTTY) {
+	// 		log_ppp_error("lcp:mru: failed to set channel MRU: %s\n", strerror(errno));
+	// 		return -1;
+	// 	}
+	// }
 
 	return 0;
 }
@@ -269,39 +286,39 @@ static void destablish_ppp(struct ppp_t *ppp)
 		return;
 	}
 
-	if (conf_unit_cache) {
-		struct ifreq ifr;
+	// if (conf_unit_cache) {
+	// 	struct ifreq ifr;
 
-		if (ppp->ses.net != def_net) {
-			if (net->move_link(def_net, ppp->ses.ifindex)) {
-				log_ppp_warn("failed to attach to default namespace\n");
-				triton_md_unregister_handler(&ppp->unit_hnd, 1);
-				goto skip;
-			}
-			ppp->ses.net = def_net;
-			net = def_net;
-			ppp->ses.ifindex = net->get_ifindex(ppp->ses.ifname);
-		}
+	// 	if (ppp->ses.net != def_net) {
+	// 		if (net->move_link(def_net, ppp->ses.ifindex)) {
+	// 			log_ppp_warn("failed to attach to default namespace\n");
+	// 			triton_md_unregister_handler(&ppp->unit_hnd, 1);
+	// 			goto skip;
+	// 		}
+	// 		ppp->ses.net = def_net;
+	// 		net = def_net;
+	// 		ppp->ses.ifindex = net->get_ifindex(ppp->ses.ifname);
+	// 	}
 
-		sprintf(ifr.ifr_newname, "ppp%i", ppp->ses.unit_idx);
-		if (strcmp(ifr.ifr_newname, ppp->ses.ifname)) {
-			strncpy(ifr.ifr_name, ppp->ses.ifname, IFNAMSIZ);
-			if (net->sock_ioctl(SIOCSIFNAME, &ifr)) {
-				log_ppp_warn("failed to rename ppp to default name\n");
-				triton_md_unregister_handler(&ppp->unit_hnd, 1);
-				goto skip;
-			}
-		}
-	}
+	// 	sprintf(ifr.ifr_newname, "ppp%i", ppp->ses.unit_idx);
+	// 	if (strcmp(ifr.ifr_newname, ppp->ses.ifname)) {
+	// 		strncpy(ifr.ifr_name, ppp->ses.ifname, IFNAMSIZ);
+	// 		if (net->sock_ioctl(SIOCSIFNAME, &ifr)) {
+	// 			log_ppp_warn("failed to rename ppp to default name\n");
+	// 			triton_md_unregister_handler(&ppp->unit_hnd, 1);
+	// 			goto skip;
+	// 		}
+	// 	}
+	// }
 
-	if (conf_unit_cache) {
-		triton_md_unregister_handler(&ppp->unit_hnd, 0);
+	// if (conf_unit_cache) {
+	// 	triton_md_unregister_handler(&ppp->unit_hnd, 0);
 
-		uc = mempool_alloc(uc_pool);
-		uc->fd = ppp->unit_fd;
-		uc->unit_idx = ppp->ses.unit_idx;
-	} else
-		triton_md_unregister_handler(&ppp->unit_hnd, 1);
+	// 	uc = mempool_alloc(uc_pool);
+	// 	uc->fd = ppp->unit_fd;
+	// 	uc->unit_idx = ppp->ses.unit_idx;
+	// } else
+	// 	triton_md_unregister_handler(&ppp->unit_hnd, 1);
 
 skip:
 	ap_session_finished(&ppp->ses);
@@ -370,6 +387,7 @@ int __export ppp_chan_send(struct ppp_t *ppp, void *data, int size)
 	//printf("ppp_chan_send: ");
 	//print_buf((uint8_t*)data,size);
 
+	// n = net->write(ppp->fd, data, size);
 	n = net->write(ppp->chan_fd, data, size);
 	if (n < size)
 		log_ppp_error("ppp_chan_send: short write %i, excpected %i\n", n, size);
@@ -494,6 +512,79 @@ cont:
 
 	return 0;
 }
+
+
+
+static int ppp_chan_and_unit_read(struct triton_md_handler_t *h) {
+	struct ppp_t *ppp = container_of(h, typeof(*ppp), chan_hnd);
+	struct ppp_handler_t *ppp_h;
+	uint16_t proto;
+
+	if (!ppp->buf)
+		ppp->buf = mempool_alloc(buf_pool);
+
+	while(1) {
+cont:
+		ppp->buf_size = net->read(h->fd, ppp->buf, PPP_BUF_SIZE);
+		if (ppp->buf_size < 0) {
+			if (errno != EAGAIN) {
+				log_ppp_error("ppp_chan_read: %s\n", strerror(errno));
+				ap_session_terminate(&ppp->ses, TERM_NAS_ERROR, 1);
+				return 1;
+			}
+			break;
+		}
+
+		if (ppp->buf_size == 0)
+			break;
+
+		if (ppp->buf_size < 2) {
+			log_ppp_error("ppp_chan_read: short read %i\n", ppp->buf_size);
+			continue;
+		}
+
+		fprintf (stderr, "---| PPP CHAN AND UNIT READ:\n");
+		print_hex(ppp->buf,ppp->buf_size);
+
+		proto = ntohs(*(uint16_t*)ppp->buf);
+		list_for_each_entry(ppp_h, &ppp->chan_handlers, entry) {
+			if (ppp_h->proto == proto) {
+				fprintf (stderr, "---| PPP CHAN AND UNIT READ to CHAN hnd: %p\n", ppp_h);
+				ppp_h->recv(ppp_h);
+				if (ppp->fd == -1) {
+					//ppp->ses.ctrl->finished(ppp);
+					return 1;
+				}
+				goto cont;
+			}
+		}
+
+                list_for_each_entry(ppp_h, &ppp->unit_handlers, entry) {
+                        if (ppp_h->proto == proto) {
+							if (ppp->unit_read > 0) {
+								fprintf (stderr, "---| PPP CHAN AND UNIT READ to UNIT hnd: %p\n", ppp_h);
+								ppp_h->recv(ppp_h);
+								// if (ppp->fd == -1) {
+								// 	//ppp->ses.ctrl->finished(ppp);
+								// 	return 1;
+								// }
+							}
+                                goto cont;
+						}
+                }
+
+		lcp_send_proto_rej(ppp, proto);
+		//log_ppp_warn("ppp_chan_read: discarding unknown packet %x\n", proto);
+	}
+
+	mempool_free(ppp->buf);
+	ppp->buf = NULL;
+
+	return 0;
+}
+
+
+
 
 void ppp_recv_proto_rej(struct ppp_t *ppp, uint16_t proto)
 {

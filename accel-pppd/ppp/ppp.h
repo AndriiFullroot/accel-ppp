@@ -61,6 +61,8 @@ struct ppp_t
 	struct list_head unit_handlers;
 
 	struct list_head layers;
+
+	int unit_read;
 };
 
 struct ppp_layer_t;

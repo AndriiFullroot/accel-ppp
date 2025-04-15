@@ -105,52 +105,54 @@ out_err:
 
 int __export iplink_get_stats(int ifindex, struct rtnl_link_stats64 *stats)
 {
-	struct iplink_req {
-		struct nlmsghdr n;
-		struct ifinfomsg i;
-		char buf[4096];
-	} req;
-	struct ifinfomsg *ifi;
-	int len;
-	struct rtattr *tb[IFLA_MAX + 1];
-	struct rtnl_handle *rth = net->rtnl_get();
-	int r = -1;
+	return 0;
 
-	if (!rth)
-		return -1;
+// 	struct iplink_req {
+// 		struct nlmsghdr n;
+// 		struct ifinfomsg i;
+// 		char buf[4096];
+// 	} req;
+// 	struct ifinfomsg *ifi;
+// 	int len;
+// 	struct rtattr *tb[IFLA_MAX + 1];
+// 	struct rtnl_handle *rth = net->rtnl_get();
+// 	int r = -1;
 
-	memset(&req, 0, sizeof(req) - 4096);
+// 	if (!rth)
+// 		return -1;
 
-	req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
-	req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
-	req.n.nlmsg_type = RTM_GETLINK;
-	req.i.ifi_family = AF_PACKET;
-	req.i.ifi_index = ifindex;
+// 	memset(&req, 0, sizeof(req) - 4096);
 
-	if (rtnl_talk(rth, &req.n, 0, 0, &req.n, NULL, NULL, 0) < 0)
-		goto out;
+// 	req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg));
+// 	req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+// 	req.n.nlmsg_type = RTM_GETLINK;
+// 	req.i.ifi_family = AF_PACKET;
+// 	req.i.ifi_index = ifindex;
 
-	if (req.n.nlmsg_type != RTM_NEWLINK)
-		goto out;
+// 	if (rtnl_talk(rth, &req.n, 0, 0, &req.n, NULL, NULL, 0) < 0)
+// 		goto out;
 
-	ifi = NLMSG_DATA(&req.n);
+// 	if (req.n.nlmsg_type != RTM_NEWLINK)
+// 		goto out;
 
-	len = req.n.nlmsg_len;
+// 	ifi = NLMSG_DATA(&req.n);
 
-	len -= NLMSG_LENGTH(sizeof(*ifi));
-	if (len < 0)
-		goto out;
+// 	len = req.n.nlmsg_len;
 
-	parse_rtattr(tb, IFLA_MAX, IFLA_RTA(ifi), len);
-	if (tb[IFLA_STATS64]) {
-		memcpy(stats, RTA_DATA(tb[IFLA_STATS64]), sizeof(*stats));
-		r = 0;
-	}
+// 	len -= NLMSG_LENGTH(sizeof(*ifi));
+// 	if (len < 0)
+// 		goto out;
 
-out:
-	net->rtnl_put(rth);
+// 	parse_rtattr(tb, IFLA_MAX, IFLA_RTA(ifi), len);
+// 	if (tb[IFLA_STATS64]) {
+// 		memcpy(stats, RTA_DATA(tb[IFLA_STATS64]), sizeof(*stats));
+// 		r = 0;
+// 	}
 
-	return r;
+// out:
+// 	net->rtnl_put(rth);
+
+// 	return r;
 }
 
 int __export iplink_set_mtu(int ifindex, int mtu)

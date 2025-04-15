@@ -75,18 +75,18 @@ static int ccp_set_flags(int fd, int isopen, int isup)
 {
 	int flags;
 
-	if (net->ppp_ioctl(fd, PPPIOCGFLAGS, &flags)) {
-		log_ppp_error("ccp: failed to get flags: %s\n", strerror(errno));
-		return -1;
-	}
+	// if (net->ppp_ioctl(fd, PPPIOCGFLAGS, &flags)) {
+	// 	log_ppp_error("ccp: failed to get flags: %s\n", strerror(errno));
+	// 	return -1;
+	// }
 
-	flags &= ~(SC_CCP_OPEN | SC_CCP_UP);
-	flags |= (isopen ? SC_CCP_OPEN : 0) | (isup ? SC_CCP_UP : 0);
+	// flags &= ~(SC_CCP_OPEN | SC_CCP_UP);
+	// flags |= (isopen ? SC_CCP_OPEN : 0) | (isup ? SC_CCP_UP : 0);
 
-	if (net->ppp_ioctl(fd, PPPIOCSFLAGS, &flags)) {
-		log_ppp_error("ccp: failed to set flags: %s\n", strerror(errno));
-		return -1;
-	}
+	// if (net->ppp_ioctl(fd, PPPIOCSFLAGS, &flags)) {
+	// 	log_ppp_error("ccp: failed to set flags: %s\n", strerror(errno));
+	// 	return -1;
+	// }
 
 	return 0;
 }

@@ -120,6 +120,8 @@ struct ap_session
 	uint64_t acct_rx_bytes_i;
 	uint64_t acct_tx_bytes_i;
 	int acct_start;
+
+	uint32_t vpp_sw_ifindex;
 };
 
 struct ap_session_stat

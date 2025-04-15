@@ -36,6 +36,11 @@
 
 #include "memdebug.h"
 
+#include "vpppoe.h"
+
+#include "ipdb.h"
+
+
 #define SID_MAX 65536
 
 #ifndef min
@@ -221,7 +226,24 @@ static void disconnect(struct pppoe_conn_t *conn)
 
 static void ppp_started(struct ap_session *ses)
 {
+	struct ppp_t *ppp = container_of(ses, typeof(*ppp), ses);
+	struct pppoe_conn_t *conn = container_of(ppp, typeof(*conn), ppp);
+
+	ses->vpp_sw_ifindex = vpppoe_create_pppoe_session(conn->addr, &ses->ipv4->peer_addr, conn->sid, &ses->ipv4->addr, ses->ipv4->mask);
+
 	log_ppp_debug("pppoe: ppp started\n");
+}
+
+int pppoe_terminate(struct ap_session *ses, int hard) {
+	int ret = 0;
+	struct ppp_t *ppp = container_of(ses, typeof(*ppp), ses);
+	struct pppoe_conn_t *conn = container_of(ppp, typeof(*conn), ppp);
+
+	vpppoe_delete_pppoe_session(conn->addr, &ses->ipv4->peer_addr, conn->sid, ses->vpp_sw_ifindex);
+
+	ret = ppp_terminate(ses, hard);
+
+	return ret;
 }
 
 static void ppp_finished(struct ap_session *ses)
@@ -348,7 +370,7 @@ static struct pppoe_conn_t *allocate_channel(struct pppoe_serv_t *serv, const ui
 	conn->ctrl.ctx = &conn->ctx;
 	conn->ctrl.started = ppp_started;
 	conn->ctrl.finished = ppp_finished;
-	conn->ctrl.terminate = ppp_terminate;
+	conn->ctrl.terminate = pppoe_terminate;
 	conn->ctrl.max_mtu = min(ETH_DATA_LEN, serv->mtu) - 8;
 	conn->ctrl.type = CTRL_TYPE_PPPOE;
 	conn->ctrl.ppp = 1;
@@ -415,6 +437,7 @@ static struct pppoe_conn_t *allocate_channel(struct pppoe_serv_t *serv, const ui
 
 	ppp_init(&conn->ppp);
 
+	conn->ctrl.dont_ifcfg = 1;
 	conn->ppp.ses.net = serv->net;
 	conn->ppp.ses.ctrl = &conn->ctrl;
 	conn->ppp.ses.chan_name = conn->ctrl.calling_station_id;
@@ -1433,6 +1456,8 @@ void pppoe_server_start(const char *opt, void *cli)
 		__pppoe_server_start(name, ptr, cli, -1, 0, 0);
 	} else
 		__pppoe_server_start(opt, opt, cli, -1, 0, 0);
+
+	vpppoe_get();
 }
 
 static void pppoe_serv_ctx_switch(struct triton_context_t *ctx, void *arg)
@@ -1642,6 +1667,9 @@ void pppoe_server_stop(const char *ifname)
 		triton_context_call(&serv->ctx, (triton_event_func)_server_stop, serv);
 		break;
 	}
+
+	vpppoe_put();
+
 	pthread_rwlock_unlock(&serv_lock);
 }
 
@@ -2125,6 +2153,9 @@ static void pppoe_init(void)
 {
 	int fd;
 	uint8_t *ptr;
+
+	vpppoe_init();
+	// vpppoe_get();
 
 	ptr = malloc(SID_MAX/8);
 	memset(ptr, 0xff, SID_MAX/8);
