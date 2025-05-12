@@ -58,6 +58,7 @@ struct ap_ctrl {
 	void (*started)(struct ap_session*);
 	void (*finished)(struct ap_session *);
 	int (*terminate)(struct ap_session *, int hard);
+	int (*non_dev_ppp_fixup)(struct ap_session*);
 };
 
 struct ap_private
@@ -120,6 +121,8 @@ struct ap_session
 	uint64_t acct_rx_bytes_i;
 	uint64_t acct_tx_bytes_i;
 	int acct_start;
+
+	uint32_t vpp_sw_if_index;
 };
 
 struct ap_session_stat
