@@ -291,8 +291,16 @@ int pppoe_create_non_dev_ppp_interface(struct ap_session *ses) {
 
 	ret = vpppoe_set_feature(ifindex, 0, "ip4-not-enabled", "ip4-unicast");
 	if (ret) {
-		log_error("VPPPOE: Can't create VPP lcp TUN pair: sw_if_index %d name %s\n", ifindex, name);
+		log_error("VPPPOE: Can't set ip4 feature\n");
 		goto post_vpp_err;
+	}
+
+	if (!ppp->ses.ipv6) {
+		ret = vpppoe_set_feature(ifindex, 0, "ip6-not-enabled", "ip6-unicast");
+		if (ret) {
+			log_error("VPPPOE: Can't set ip6 feature\n");
+			goto post_vpp_err;
+		}
 	}
 
 	ses->vpp_sw_if_index = ifindex;
