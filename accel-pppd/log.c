@@ -492,35 +492,41 @@ static void load_config(void)
 {
 	char *opt;
 
-	opt = conf_get_opt("log", "level");
-	if (opt && atoi(opt) >= 0)
-		log_level = atoi(opt);
-
-	opt = conf_get_opt("log", "log-emerg");
-	if (opt) {
-		if (emerg_file)
-			emerg_file = freopen(opt, "a", emerg_file);
-		else
-			emerg_file = fopen(opt, "a");
-		if (!emerg_file)
-			fprintf(stderr, "log:open: %s\n", strerror(errno));
-	} else if (emerg_file) {
-		fclose(emerg_file);
+	// log_level = LOG_DEBUG;
+	// emerg_file = stderr;
+	// debug_file = stderr;
 		emerg_file = NULL;
-	}
-
-	opt = conf_get_opt("log", "log-debug");
-	if (opt) {
-		if (debug_file)
-			debug_file = freopen(opt, "a", debug_file);
-		else
-			debug_file = fopen(opt, "a");
-		if (!debug_file)
-			fprintf(stderr, "log:open: %s\n", strerror(errno));
-	} else if (debug_file) {
-		fclose(debug_file);
 		debug_file = NULL;
-	}
+		
+	// opt = conf_get_opt("log", "level");
+	// if (opt && atoi(opt) >= 0)
+	// 	log_level = atoi(opt);
+
+	// opt = conf_get_opt("log", "log-emerg");
+	// if (opt) {
+	// 	if (emerg_file)
+	// 		emerg_file = freopen(opt, "a", emerg_file);
+	// 	else
+	// 		emerg_file = fopen(opt, "a");
+	// 	if (!emerg_file)
+	// 		fprintf(stderr, "log:open: %s\n", strerror(errno));
+	// } else if (emerg_file) {
+	// 	fclose(emerg_file);
+	// 	emerg_file = NULL;
+	// }
+
+	// opt = conf_get_opt("log", "log-debug");
+	// if (opt) {
+	// 	if (debug_file)
+	// 		debug_file = freopen(opt, "a", debug_file);
+	// 	else
+	// 		debug_file = fopen(opt, "a");
+	// 	if (!debug_file)
+	// 		fprintf(stderr, "log:open: %s\n", strerror(errno));
+	// } else if (debug_file) {
+	// 	fclose(debug_file);
+	// 	debug_file = NULL;
+	// }
 }
 
 static void log_init(void)

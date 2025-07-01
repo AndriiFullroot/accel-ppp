@@ -37,7 +37,10 @@
 #include "memdebug.h"
 
 #include "ipdb.h"
+
+#include "vpputils.h"
 #include "vpppoe.h"
+#include "vppiputils.h"
 
 #define SID_MAX 65536
 
@@ -234,14 +237,8 @@ int pppoe_terminate(struct ap_session *ses, int hard) {
 
 	if (ppp->is_non_dev_ppp)
 	{
-		if (ses->non_dev_ppp_fixup_status == 2) {
-			vpppoe_async_del_pppoe_interface(conn->addr, &ses->ipv4->peer_addr, conn->sid, ses->vpp_sw_if_index, ses->ifname);
-		} else if (ses->non_dev_ppp_fixup_status == 1) {
-			vpppoe_setup_pppoe_interface_ctx_t *callback_ctx = (vpppoe_setup_pppoe_interface_ctx_t *)ses->non_dev_ppp_fixup_priv;
-
-			__sync_or_and_fetch(&callback_ctx->remove_after, 1);
-		}
-
+		vpp_iproute_flush(ses);
+		vpppoe_sync_del_pppoe_interface(conn->addr, conn->sid);
 	}
 
 	ret = ppp_terminate(ses, hard);
@@ -263,77 +260,10 @@ static void ppp_finished(struct ap_session *ses)
 	}
 }
 
-static void pppoe_async_vpppoe_session_created_cb(vpppoe_setup_pppoe_interface_ctx_t *callback_ctx) {
-	int ret;
-	struct ifreq ifr;
-	struct ap_session *ses = (struct ap_session *)callback_ctx->priv;
-	struct ppp_t *ppp = container_of(ses, typeof(*ppp), ses);
-	struct pppoe_conn_t *conn = container_of(ppp, typeof(*conn), ppp);
-
-	if (callback_ctx->err) {
-		ses->non_dev_ppp_fixup_status = 0;
-		ap_session_terminate(ses, TERM_NAS_ERROR, 0);
-		_free(callback_ctx);
-		return;
-	}
-	
-	ses->non_dev_ppp_fixup_status = 2;
-
-	if (__sync_and_and_fetch(&callback_ctx->remove_after, 1)) {
-		vpppoe_async_del_pppoe_interface(conn->addr, &ses->ipv4->peer_addr, conn->sid, ses->vpp_sw_if_index, ses->ifname);
-		_free(callback_ctx);
-		return;
-	}
-
-	ses->vpp_sw_if_index = callback_ctx->ifindex;
-	
-	strncpy(ses->ifname, callback_ctx->ifname, IFNAMSIZ - 1);
-	memset(&ifr, 0, sizeof(ifr));
-	strncpy(ifr.ifr_name, ses->ifname, IFNAMSIZ - 1);
-	ret = net->sock_ioctl(SIOCGIFINDEX, &ifr);
-	if (ret) {
-		log_error("VPPPOE: Can't get host ifindex for the interface %s: %s\n", ifr.ifr_name, strerror(errno));
-		// ap_session_terminate(ses, TERM_NAS_ERROR, 0);
-		// free(callback_ctx);
-		return;
-	}
-
-	ses->ifindex = ifr.ifr_ifindex;
-
-	if (ppp->mtu) {
-		memset(&ifr, 0, sizeof(ifr));
-		strcpy(ifr.ifr_name, ses->ifname);
-		ifr.ifr_mtu = ppp->mtu;
-		ret = net->sock_ioctl(SIOCSIFMTU, &ifr);
-		if (ret) {
-			log_error("VPPPOE: Can't setup MTU for interface %s value %d: %s\n", ifr.ifr_name, ifr.ifr_mtu, strerror(errno));
-			// ap_session_terminate(ses, TERM_NAS_ERROR, 0);
-			// free(callback_ctx);
-			return;
-		}
-	}
-
-	/* TODO: move it to the ifcfg? */
-	ret = iproute_add(ses->ifindex, 0, ses->ipv4->peer_addr, 0, ETH_P_ALL, 32, 0);
-	if (ret) {
-		log_warn("VPPPOE: Can't setup route %d.%d.%d.%d/32 for interface %d: %s\n",
-			ses->ipv4->peer_addr >> 24 & 0xff, ses->ipv4->peer_addr >> 16 & 0xff, ses->ipv4->peer_addr >> 8 & 0xff, ses->ipv4->peer_addr & 0xff,
-			ses->ifindex, strerror(errno));
-		// ap_session_terminate(ses, TERM_NAS_ERROR, 0);
-		// free(callback_ctx);
-		return;
-	}
-
-	free(callback_ctx);
-	ap_session_activate(ses);
-}
-
 int pppoe_create_non_dev_ppp_interface(struct ap_session *ses) {
 	struct ppp_t *ppp = container_of(ses, typeof(*ppp), ses);
 	struct pppoe_conn_t *conn = container_of(ppp, typeof(*conn), ppp);
 	uint32_t ifindex = -1;
-	char name[16];
-	struct ifreq ifr;
 	int ret = 0;
 
 	if (!ppp->ses.ipv4) {
@@ -341,35 +271,18 @@ int pppoe_create_non_dev_ppp_interface(struct ap_session *ses) {
 		return -1;
 	}
 
-	ses->non_dev_ppp_fixup_status = 1;
-
-	vpppoe_setup_pppoe_interface_ctx_t *callback_ctx = _malloc(sizeof(*callback_ctx));
-	memset(callback_ctx, 0, sizeof(*callback_ctx));
-	callback_ctx->tctx = &conn->ctx;
-	callback_ctx->callback = pppoe_async_vpppoe_session_created_cb;
-	callback_ctx->priv = ses;
-	callback_ctx->remove_after = 0;
-	ses->non_dev_ppp_fixup_priv = callback_ctx;
-	vpppoe_async_add_pppoe_interface(conn->addr, &ses->ipv4->peer_addr, conn->sid, callback_ctx);
-
-	return 0;
-
-post_vpp_err:
-	ret = vpppoe_lcp_tun_add_del(ifindex, name, 0);
+	ret = vpppoe_sync_add_pppoe_interface(conn->addr, &ses->ipv4->peer_addr, conn->sid, &ifindex);
 	if (ret) {
-		log_error("VPPPOE: Can't remove VPP lcp TUN pair after fail as fixup: sw_if_index %d name %s\n", ifindex, name);
-	} else {
-lsp_vpp_err:
-		ret = vpppoe_pppoe_session_add_del(conn->addr, &ses->ipv4->peer_addr, conn->sid, 0, NULL);
-		if (ret)
-			log_warn("VPPPOE: Can't remove session after fail as fixup:  %d %02x.%02x.%02x.%02x.%02x.%02x", conn->sid,
-							conn->addr[0], conn->addr[1], conn->addr[2], conn->addr[3], conn->addr[4], conn->addr[5]);
+		return ret;
 	}
 
-	ses->vpp_sw_if_index = -1;
-	ses->non_dev_ppp_fixup_status = 0;
+	ses->vpp_sw_if_index = ifindex;
 
-	return -1;
+	vpppoe_set_feature(ifindex, 0, "ip4-not-enabled", "ip4-unicast");
+    vpppoe_set_feature(ifindex, 0, "ip6-not-enabled", "ip6-unicast");
+	vpp_iproute_add_del(ses, 1, ifindex, 0, ses->ipv4->peer_addr, 0, ETH_P_ALL, 32, 0);
+
+	return 0;
 }
 
 
@@ -553,6 +466,7 @@ static struct pppoe_conn_t *allocate_channel(struct pppoe_serv_t *serv, const ui
 	if (serv->is_non_dev_ppp) {
 		conn->ctrl.dont_ifcfg = 1;
 		conn->ppp.is_non_dev_ppp = 1;
+		conn->ppp.ses.non_dev_ppp_fixup = pppoe_create_non_dev_ppp_interface;
 	}
 
 	conn->ppp.ses.net = serv->net;
@@ -569,11 +483,6 @@ static struct pppoe_conn_t *allocate_channel(struct pppoe_serv_t *serv, const ui
 		conn->ppp.ses.ifname_rename = _strdup(conf_ifname);
 	if (conf_session_timeout)
 		conn->ppp.ses.session_timeout = conf_session_timeout;
-
-	if (serv->is_non_dev_ppp) {
-		conn->ppp.ses.non_dev_ppp_fixup = pppoe_create_non_dev_ppp_interface;
-		conn->ppp.ses.non_dev_ppp_fixup_status = 0;
-	}
 
 	triton_context_register(&conn->ctx, conn);
 
@@ -1644,7 +1553,7 @@ static void __pppoe_server_start(const char *ifname, const char *opt, void *cli,
 
 	serv->is_non_dev_ppp = is_non_dev_ppp;
 	if (serv->is_non_dev_ppp)
-		vpppoe_get();
+		vpp_get();
 
 	if (net->sock_ioctl(SIOCGIFFLAGS, &ifr)) {
 		if (cli)
@@ -1738,7 +1647,7 @@ static void __pppoe_server_start(const char *ifname, const char *opt, void *cli,
 
 out_err:
 	if (serv->is_non_dev_ppp)
-		vpppoe_put();
+		vpp_put();
 
 	_free(serv);
 }
@@ -1794,7 +1703,7 @@ void pppoe_server_free(struct pppoe_serv_t *serv)
 	triton_context_unregister(&serv->ctx);
 
 	if (serv->is_non_dev_ppp)
-		vpppoe_put();
+		vpp_put();
 
 	_free(serv->ifname);
 	_free(serv);

@@ -122,9 +122,8 @@ struct ap_session
 	int acct_start;
 
 	int (*non_dev_ppp_fixup)(struct ap_session*);
-	int non_dev_ppp_fixup_status; /* 0 nondone, 1 processing, 2 done */
-	void *non_dev_ppp_fixup_priv;
 	uint32_t vpp_sw_if_index;
+	struct list_head vpp_routes;
 };
 
 struct ap_session_stat
